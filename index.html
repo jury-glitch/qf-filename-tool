@@ -180,8 +180,23 @@ header{background:linear-gradient(180deg,#161b28 0%,#13161e 100%);border-bottom:
       <button class="toggle-btn" onclick="setAssetType(this,'DWG')">DWG 工程圖</button>
       <button class="toggle-btn" onclick="setAssetType(this,'IMG')">IMG 圖片</button>
       <button class="toggle-btn" onclick="setAssetType(this,'SMP')">SMP 樣品資料</button>
+      <button class="toggle-btn" onclick="setAssetType(this,'RPT')">RPT 測試報告</button>
     </div>
   </div>
+
+  <!-- 客戶欄位：僅 SMP / RPT 顯示 -->
+  <div class="card" id="asset-customer-card" style="display:none">
+    <div class="card-title">客戶　<span id="asset-customer-required-label" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">SMP 必填 / RPT 選填</span></div>
+    <div class="field" style="max-width:420px;position:relative">
+      <input id="asset-customer-input" placeholder="輸入客戶名稱或短名搜尋…" oninput="onAssetCustomerInput()" autocomplete="off">
+      <div id="asset-customer-drop" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);max-height:220px;overflow-y:auto;z-index:100;box-shadow:0 4px 16px rgba(0,0,0,.12)"></div>
+    </div>
+    <div id="asset-customer-tag" style="display:none;margin-top:8px;display:flex;align-items:center;gap:8px">
+      <span id="asset-customer-name" style="font-size:13px;font-weight:500;background:var(--bg-secondary);padding:4px 10px;border-radius:999px;border:1px solid var(--border)"></span>
+      <span style="font-size:11px;cursor:pointer;color:var(--muted)" onclick="clearAssetCustomer()">✕ 清除</span>
+    </div>
+  </div>
+
   <div class="card">
     <div class="card-title">工廠 / 產品編號　<span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">料號、OEM號、變體代號直接帶入</span></div>
     <div class="field" style="max-width:420px">
@@ -208,7 +223,7 @@ header{background:linear-gradient(180deg,#161b28 0%,#13161e 100%);border-bottom:
     </div>
   </div>
   <div class="card">
-    <div class="card-title">產生結果　<span style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">類型_工廠編號_日期_版本</span></div>
+    <div class="card-title">產生結果　<span id="asset-format-hint" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0">類型_工廠編號_日期_版本</span></div>
     <div class="result-box">
       <span class="result-filename" id="asset-result">—</span>
       <button class="copy-btn" id="asset-copy-btn" onclick="copyResult('asset-result','asset-copy-btn')">複製</button>
@@ -233,9 +248,58 @@ const CUSTOMERS = [{"id": "A0010", "name": "美港實業股份有限公司", "sh
 
 const state = {
   biz:{ type:'RFQ', status:'Pending', customer:null, date:'' },
-  asset:{ type:'SPEC', ver:'v1', date:'' },
+  asset:{ type:'SPEC', ver:'v1', date:'', customer:null },
   history:[], dropFocus:-1, dropItems:[]
 };
+
+// ── Asset customer helpers ──────────────────────────────
+const ASSET_CUSTOMER_TYPES = ['SMP','RPT'];
+
+function onAssetCustomerInput(){
+  const q = document.getElementById('asset-customer-input').value.trim();
+  if(!q){ closeAssetDrop(); return; }
+  const results = CUSTOMERS.filter(c=>
+    c.short.includes(q)||c.name.includes(q)||(c.alias&&c.alias.includes(q))||c.roman.toLowerCase().includes(q.toLowerCase())
+  ).slice(0,8);
+  renderAssetDrop(results);
+}
+
+function renderAssetDrop(items){
+  const drop = document.getElementById('asset-customer-drop');
+  if(!items.length){ drop.style.display='none'; return; }
+  drop.innerHTML = items.map(c=>`
+    <div onclick="selectAssetCustomer('${c.id}')" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)" onmouseover="this.style.background='var(--bg-secondary)'" onmouseout="this.style.background=''">
+      <span style="font-weight:600">${c.short}</span>
+      <span style="color:var(--muted);margin-left:6px;font-size:11px">${c.name}</span>
+    </div>`).join('');
+  drop.style.display='block';
+}
+
+function selectAssetCustomer(id){
+  const c = CUSTOMERS.find(x=>x.id===id);
+  if(!c) return;
+  state.asset.customer = c;
+  document.getElementById('asset-customer-input').value='';
+  closeAssetDrop();
+  const tag = document.getElementById('asset-customer-tag');
+  tag.style.display='flex';
+  document.getElementById('asset-customer-name').textContent = c.short + '　' + c.name;
+  updateAsset();
+}
+
+function clearAssetCustomer(){
+  state.asset.customer=null;
+  document.getElementById('asset-customer-tag').style.display='none';
+  document.getElementById('asset-customer-input').value='';
+  updateAsset();
+}
+
+function closeAssetDrop(){
+  document.getElementById('asset-customer-drop').style.display='none';
+}
+document.addEventListener('click',e=>{
+  if(!e.target.closest('#asset-customer-input')&&!e.target.closest('#asset-customer-drop')) closeAssetDrop();
+});
 
 // 時鐘
 function updateClock(){
@@ -273,6 +337,14 @@ function setType(btn,val){
 function setStatus(btn,val){ toggleActive('status-group',btn); state.biz.status=val; updateResult(); }
 function setAssetType(btn,val){
   toggleActive('asset-type-group',btn); state.asset.type=val;
+  const needCustomer = ASSET_CUSTOMER_TYPES.includes(val);
+  document.getElementById('asset-customer-card').style.display = needCustomer ? '' : 'none';
+  if(!needCustomer){ clearAssetCustomer(); }
+  // update format hint
+  const hint = document.getElementById('asset-format-hint');
+  if(val==='SMP') hint.textContent='SMP_客戶_料號_日期_版本';
+  else if(val==='RPT') hint.textContent='RPT_(客戶_)料號_日期_版本';
+  else hint.textContent='類型_料號_日期_版本';
   updateAsset();
 }
 function setVer(btn,val){ toggleActive('ver-group',btn); state.asset.ver=val; updateAsset(); }
@@ -367,6 +439,10 @@ function updateAsset(){
   const date=state.asset.date;
   const ver=state.asset.ver;
   const parts=[type];
+  // SMP: customer required; RPT: optional
+  if(ASSET_CUSTOMER_TYPES.includes(type) && state.asset.customer){
+    parts.push(state.asset.customer.short);
+  }
   if(fn) parts.push(fn);
   if(date) parts.push(date);
   if(ver) parts.push(ver);
