@@ -90,14 +90,14 @@ header{background:linear-gradient(180deg,#161b28 0%,#13161e 100%);border-bottom:
   <div class="logo">QF</div>
   <div class="logo-text">
     <h1>QF Autotech 檔名產生器</h1>
-    <p>QF Autotech Co., Ltd. — 內部工具 v2.0</p>
+    <p>QF Autotech Co., Ltd. — 內部工具 v2.2</p>
   </div>
   <div class="ctx-badge" id="ctx-badge">● 載入中…</div>
 </header>
 
 <div class="ctx-bar">
   <span class="ctx-item"><span class="ctx-dot"></span><span id="ctx-count-text">載入中…</span></span>
-  <span class="ctx-item">工具版本：v2.0</span>
+  <span class="ctx-item">工具版本：v2.2</span>
   <span class="ctx-item" id="ctx-time"></span>
 </div>
 
@@ -169,10 +169,13 @@ header{background:linear-gradient(180deg,#161b28 0%,#13161e 100%);border-bottom:
         <label>狀態</label>
         <div class="toggle-group" id="status-group" style="margin-top:4px">
           <button class="toggle-btn active" onclick="setStatus(this,'Pending')">Pending</button>
+          <button class="toggle-btn" onclick="setStatus(this,'NoReply')">NoReply</button>
+          <button class="toggle-btn" onclick="setStatus(this,'N')">N 待處理</button>
           <button class="toggle-btn" onclick="setStatus(this,'Reply')">Reply</button>
           <button class="toggle-btn" onclick="setStatus(this,'Signed')">Signed</button>
-          <button class="toggle-btn" onclick="setStatus(this,'Nego')">Nego</button>
           <button class="toggle-btn" onclick="setStatus(this,'Resign')">Resign</button>
+          <button class="toggle-btn" onclick="setStatus(this,'Shipped')">Shipped</button>
+          <button class="toggle-btn" onclick="setStatus(this,'Void')">Void</button>
         </div>
       </div>
     </div>
@@ -265,8 +268,20 @@ header{background:linear-gradient(180deg,#161b28 0%,#13161e 100%);border-bottom:
         <input id="add-name" placeholder="例：新客戶實業有限公司" maxlength="60">
       </div>
       <div class="field">
-        <label>客戶編號</label>
-        <input id="add-id" placeholder="例：CUS-XXXX" maxlength="20">
+        <label>類別前綴</label>
+        <select id="add-prefix" onchange="updateNextId()">
+          <option value="CUS">CUS — 客戶</option>
+          <option value="SUP">SUP — 供應商</option>
+          <option value="LOG">LOG — 物流</option>
+          <option value="ACC">ACC — 會計</option>
+          <option value="BNK">BNK — 銀行</option>
+          <option value="GOV">GOV — 政府機關</option>
+          <option value="SYS">SYS — 系統</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>客戶編號　<span style="color:var(--green);font-size:10px" id="auto-id-hint">自動帶入，可手動修改</span></label>
+        <input id="add-id" placeholder="自動帶入" maxlength="20">
       </div>
       <div class="field">
         <label>注音代號（2碼）</label>
@@ -520,24 +535,67 @@ function updateBadge(){
     '客戶資料：' + total + ' 筆（內建 ' + CUSTOMERS.length + ' + 自訂 ' + custom + '）';
 }
 
+
+// ── 流水號資料（從主檔讀出，更新請同步修改）──
+const BASE_NEXT_IDS = {CUS:553,SUP:81,LOG:7,ACC:2,BNK:2,GOV:2,SYS:2};
+
+function getNextIds(){
+  try{
+    const saved = JSON.parse(localStorage.getItem('qf_next_ids')||'{}');
+    const result = Object.assign({}, BASE_NEXT_IDS);
+    for(const k in saved){ if(saved[k] > (result[k]||0)) result[k]=saved[k]; }
+    return result;
+  }catch(e){ return Object.assign({},BASE_NEXT_IDS); }
+}
+
+function saveNextId(prefix, num){
+  try{
+    const saved = JSON.parse(localStorage.getItem('qf_next_ids')||'{}');
+    saved[prefix] = num;
+    localStorage.setItem('qf_next_ids', JSON.stringify(saved));
+  }catch(e){}
+}
+
+function updateNextId(){
+  const prefix = document.getElementById('add-prefix').value;
+  const ids = getNextIds();
+  const num = ids[prefix] || 1;
+  const padded = prefix==='CUS'
+    ? prefix+'-'+String(num).padStart(4,'0')
+    : prefix+'-'+String(num).padStart(3,'0');
+  document.getElementById('add-id').value = padded;
+}
+
 function addCustomCustomer(){
-  const short = document.getElementById('add-short').value.trim();
-  const name  = document.getElementById('add-name').value.trim();
-  const cid   = document.getElementById('add-id').value.trim();
-  const bopo  = document.getElementById('add-bopo').value.trim().toUpperCase();
-  const roman = document.getElementById('add-roman').value.trim().toUpperCase();
-  const alias = document.getElementById('add-alias').value.trim();
+  const short  = document.getElementById('add-short').value.trim();
+  const name   = document.getElementById('add-name').value.trim();
+  const prefix = document.getElementById('add-prefix').value;
+  const cid    = document.getElementById('add-id').value.trim();
+  const bopo   = document.getElementById('add-bopo').value.trim().toUpperCase();
+  const roman  = document.getElementById('add-roman').value.trim().toUpperCase();
+  const alias  = document.getElementById('add-alias').value.trim();
   document.getElementById('err-short').style.display = 'none';
   document.getElementById('err-dup').style.display = 'none';
   if(!short){ document.getElementById('err-short').style.display='block'; return; }
   if(getAllCustomers().find(c => c.short === short)){ document.getElementById('err-dup').style.display='block'; return; }
-  const newC = { id: cid || ('CUSTOM-'+Date.now()), name: name||short, short, bopo, roman, _custom:true };
+
+  // 確認並遞增流水號
+  const ids = getNextIds();
+  const usedNum = ids[prefix] || 1;
+  const autoId = prefix==='CUS'
+    ? prefix+'-'+String(usedNum).padStart(4,'0')
+    : prefix+'-'+String(usedNum).padStart(3,'0');
+  const finalId = cid || autoId;
+  saveNextId(prefix, usedNum + 1);
+
+  const newC = { id: finalId, name: name||short, short, bopo, roman, _custom:true };
   if(alias) newC.alias = alias;
   customCustomers.push(newC);
   saveCustomCustomers();
   updateBadge();
   renderCustomList();
-  ['add-short','add-name','add-id','add-bopo','add-roman','add-alias'].forEach(id=>{ document.getElementById(id).value=''; });
+  ['add-short','add-name','add-bopo','add-roman','add-alias'].forEach(fid=>{ document.getElementById(fid).value=''; });
+  updateNextId(); // 更新下一個號顯示
 }
 
 function deleteCustomCustomer(idx){
@@ -652,6 +710,7 @@ function clearHistory(){ state.history=[]; saveHistory(); renderHistory(); }
 loadHistory();
 loadCustomCustomers();
 updateBadge();
+updateNextId();
 updateResult();
 updateAsset();
 </script>
